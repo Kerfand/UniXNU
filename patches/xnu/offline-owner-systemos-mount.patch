@@ -9,7 +9,7 @@
  
  #include <mach/exclaves.h>
  
-@@ -7013,8 +7013,256 @@
+@@ -7013,8 +7013,269 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -96,12 +96,16 @@
 +#endif
 +	if (device_vnode) vnode_put(device_vnode);
 +	root_authorized = (vfs_flags(root_mount) & MNT_RDONLY) && root_device != NODEV &&
++	kprintf("NATIVE_OWNER cache: root_device=%d root_readonly=%d\n",
++	    (int)root_device, (vfs_flags(root_mount) & MNT_RDONLY) ? 1 : 0);
 +	    native_verified_block_root_authorized(root_device);
 +	if (!root_authorized) goto done;
 +	native_owner_cache_stage = 1;
 +	if (!native_verified_block_volume_device(volume, &selected, device_path,
 +	    sizeof(device_path))) goto done;
 +	strlcpy(native_owner_cache_device_path, device_path, sizeof(native_owner_cache_device_path));
++	kprintf("NATIVE_OWNER cache: volume=%s selected=%d path=%s\n",
++	    volume, (int)selected, device_path);
 +	native_owner_cache_selected_device = selected;
 +	native_owner_cache_stage = 2;
 +	/* Exact user-mount payload already qualified against this original APFS. */
@@ -117,6 +121,8 @@
 +	native_owner_cache_stage = 3;
 +	error = mount(p, &request, &result);
 +	native_owner_cache_mount_status = error;
++	kprintf("NATIVE_OWNER cache: mountpoint=%s error=%d result=%d\n",
++	    mountpoint, error, (int)result);
 +	if (error) goto done;
 +	native_owner_cache_stage = 4;
 +	error = vnode_lookup(mountpoint, 0, &mounted_root, vfs_context_current());
@@ -133,12 +139,16 @@
 +	int native_union = (vfs_flags(cache_mount) & MNT_UNION) &&
 +	    vnode_mountedhere(original_os_root) == cache_mount && rootvnode == mounted_root;
 +	native_owner_cache_native_union = native_union;
++	kprintf("NATIVE_OWNER cache: actual=%d selected=%d readonly=%d union=%d rootmoved=%d\n",
++	    (int)actual, (int)selected, readonly, native_union,
++	    (vnode_mountedhere(original_os_root) == cache_mount) ? 1 : 0);
 +	cache_authorized = readonly && actual == selected &&
 +	    !strcmp(vfs_statfs(cache_mount)->f_fstypename, "apfs") && native_verified_block_root_authorized(actual);
 +#if defined(XNU_OWNER_UNION_SYSTEMOS) && XNU_OWNER_UNION_SYSTEMOS
 +	cache_authorized = cache_authorized && native_union;
 +#endif
 +	if (!cache_authorized) { error = EAUTH; goto done; }
++	kprintf("NATIVE_OWNER cache: cache_authorized=%d error=%d\n", cache_authorized, error);
 +	native_owner_cache_stage = 5;
 +#if !defined(XNU_OWNER_UNION_SYSTEMOS) || !XNU_OWNER_UNION_SYSTEMOS
 +	if ((error = copyout(environment, environment_vector[0], strlen(environment) + 1)) != 0 ||
@@ -155,6 +165,8 @@
 +	if (mounted_root) vnode_put(mounted_root);
 +	int root_recheck = root_authorized && native_verified_block_root_authorized(root_device);
 +	native_owner_cache_root_recheck = root_recheck;
++	kprintf("NATIVE_OWNER cache: stage=%ld error=%d root_recheck=%d\n",
++	    native_owner_cache_stage, error, root_recheck);
 +	if (!root_recheck) error = EAUTH;
 +#if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
 +	if (!error && cache_authorized && root_recheck &&
@@ -168,6 +180,7 @@
 +		dyld_flags |= UINT64_C(8);
 +		commpage_update_dyld_flags(dyld_flags);
 +		native_owner_cache_dyld_flags = dyld_flags;
++	kprintf("NATIVE_OWNER cache: dyld_flags=0x%llx\n", (unsigned long long)dyld_flags);
 +	}
 +#endif
 +	native_owner_cache_authorized = cache_authorized;
@@ -267,7 +280,7 @@
  {
  	int retval[2];
  	int error;
-@@ -7086,7 +7329,7 @@
+@@ -7086,7 +7347,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -276,7 +289,7 @@
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -7148,6 +7391,15 @@
+@@ -7148,6 +7409,15 @@
  	mach_vm_size_t map_page_size = vm_map_page_size(map);
  
  	(void) mach_vm_allocate_kernel(map, &scratch_addr, map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
@@ -292,7 +305,7 @@
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -7162,7 +7414,7 @@
+@@ -7162,7 +7432,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -301,7 +314,7 @@
  			if (!error) {
  				return;
  			}
-@@ -7173,7 +7425,7 @@
+@@ -7173,7 +7443,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -310,7 +323,7 @@
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -7186,7 +7438,7 @@
+@@ -7186,7 +7456,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);
