@@ -96,9 +96,9 @@
 +#endif
 +	if (device_vnode) vnode_put(device_vnode);
 +	root_authorized = (vfs_flags(root_mount) & MNT_RDONLY) && root_device != NODEV &&
++	    native_verified_block_root_authorized(root_device);
 +	kprintf("NATIVE_OWNER cache: root_device=%d root_readonly=%d\n",
 +	    (int)root_device, (vfs_flags(root_mount) & MNT_RDONLY) ? 1 : 0);
-+	    native_verified_block_root_authorized(root_device);
 +	if (!root_authorized) goto done;
 +	native_owner_cache_stage = 1;
 +	if (!native_verified_block_volume_device(volume, &selected, device_path,
