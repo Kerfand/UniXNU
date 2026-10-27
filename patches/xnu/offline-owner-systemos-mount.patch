@@ -9,7 +9,7 @@
  
  #include <mach/exclaves.h>
  
-@@ -7013,8 +7013,269 @@
+@@ -7013,8 +7013,319 @@
   *		word width of the kernel. Once the self-exec completes, the
   *		initproc might be different.
   */
@@ -46,8 +46,7 @@
 +	__asm__ volatile("" : : "r"(status), "r"(authorized) : "memory");
 +}
 +
- static int
--load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
++static int
 +native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
 +{
 +#ifndef XNU_OWNER_CACHE_VOLUME_UUID
@@ -210,7 +209,8 @@
 +uint8_t native_owner_data_seed_sha256[32];
 +char native_owner_data_device_path[64];
 +
-+static int
+ static int
+-load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path)
 +native_owner_data_prepare(proc_t p, user_addr_t scratch)
 +{
 +	uint64_t base = 0, size = 0;
@@ -275,12 +275,62 @@
 +}
 +#endif
 +
++// Mount the RAM-backed Data volume at /private/var. launchd needs a writable /private/var
++// before it can finish its libxpc bootstrap; without one it exits and the kernel panics
++// with "initproc exited". Everything here mirrors native_owner_cache_prepare(): the same
++// struct mount_args, the same APFS mount payload layout, and mount() through the kernel
++// entry point. Failing is not fatal, so the boot still produces a log.
++static int
++native_owner_volatile_mount(proc_t p, user_addr_t scratch)
++{
++	const char *mountpoint = "/private/var";
++	dev_t device = NODEV;
++	char device_path[64] = {0};
++	uint8_t mount_data[0x150] = {0};
++	uint64_t mount_flags = 0;
++	uint16_t mount_mode = 1;
++	uint32_t anonymous_owner = 99;
++	user64_addr_t spec = scratch + 0x160;
++	vnode_t mount_vnode = NULLVP;
++	int32_t result = 0;
++	int error;
++
++	if (!native_volatile_data_device(&device, device_path, sizeof(device_path))) {
++		kprintf("NATIVE_OWNER data: no volatile Data volume in this payload\n");
++		return ENOENT;
++	}
++	kprintf("NATIVE_OWNER data: device_path=%s\n", device_path);
++	error = vnode_lookup(mountpoint, 0, &mount_vnode, vfs_context_current());
++	if (mount_vnode) vnode_put(mount_vnode);
++	if (error) {
++		kprintf("NATIVE_OWNER data: %s lookup error=%d\n", mountpoint, error);
++		return error;
++	}
++	memcpy(mount_data, &spec, sizeof(spec));
++	memcpy(mount_data + 8, &mount_flags, sizeof(mount_flags));
++	memcpy(mount_data + 16, &mount_mode, sizeof(mount_mode));
++	memcpy(mount_data + 0x144, &anonymous_owner, sizeof(anonymous_owner));
++	memcpy(mount_data + 0x148, &anonymous_owner, sizeof(anonymous_owner));
++	struct mount_args request = {.type = scratch + 0x100, .path = scratch + 0x120,
++	    .flags = (int)mount_flags, .data = scratch + 0x200};
++	if ((error = copyout("apfs", request.type, 5)) != 0 ||
++	    (error = copyout(mountpoint, request.path, strlen(mountpoint) + 1)) != 0 ||
++	    (error = copyout(device_path, spec, strlen(device_path) + 1)) != 0 ||
++	    (error = copyout(mount_data, request.data, sizeof(mount_data))) != 0) {
++		kprintf("NATIVE_OWNER data: copyout error=%d\n", error);
++		return error;
++	}
++	error = mount(p, &request, &result);
++	kprintf("NATIVE_OWNER data: mount %s error=%d result=%d\n", mountpoint, error, (int)result);
++	return error;
++}
++
 +static int
 +load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
  	int retval[2];
  	int error;
-@@ -7086,7 +7347,7 @@
+@@ -7086,7 +7397,7 @@
  	 */
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
@@ -289,7 +339,7 @@
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -7148,6 +7409,15 @@
+@@ -7148,6 +7459,18 @@
  	mach_vm_size_t map_page_size = vm_map_page_size(map);
  
  	(void) mach_vm_allocate_kernel(map, &scratch_addr, map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
@@ -297,6 +347,9 @@
 +#if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
 +	int cache_error = native_owner_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
 +	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
++	int volatile_error = native_owner_volatile_mount(p, (user_addr_t)scratch_addr);
++	if (volatile_error) kprintf("NATIVE_OWNER data: /private/var unavailable (%d); continuing\n",
++	    volatile_error);
 +#endif
 +#if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
 +	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
@@ -305,7 +358,7 @@
  #if CONFIG_MEMORYSTATUS
  	(void) memorystatus_init_at_boot_snapshot();
  #endif /* CONFIG_MEMORYSTATUS */
-@@ -7162,7 +7432,7 @@
+@@ -7162,7 +7485,7 @@
  
  		if (is_release_suffix) {
  			printf("load_init_program: attempting to load /sbin/launchd\n");
@@ -314,7 +367,7 @@
  			if (!error) {
  				return;
  			}
-@@ -7173,7 +7443,7 @@
+@@ -7173,7 +7496,7 @@
  			strlcat(launchd_path, launchd_suffix, sizeof(launchd_path));
  
  			printf("load_init_program: attempting to load %s\n", launchd_path);
@@ -323,7 +376,7 @@
  			if (!error) {
  				return;
  			} else if (error != ENOENT) {
-@@ -7186,7 +7456,7 @@
+@@ -7186,7 +7509,7 @@
  	error = ENOENT;
  	for (i = 0; i < sizeof(init_programs) / sizeof(init_programs[0]); i++) {
  		printf("load_init_program: attempting to load %s\n", init_programs[i]);
