@@ -163,6 +163,12 @@ def build(ctx, kernel=None):
         command.append('--trust-cache')
     if addon:
         command.append('--gpu-addon')
+    # Fork addition: the signed verified-root policy bundle travels in the device
+    # tree. The kernel keeps only the 395-byte anchor, so the image stays small
+    # enough for the panic screen cave at its fixed address.
+    bundle = os.environ.get('UNIXNU_VERIFIED_ROOT_BUNDLE') or adt.get('verified_root_bundle')
+    if bundle:
+        command += ['--verified-root-bundle', str(bundle)]
     if adt.get('iphone_identity'):
         command.append('--iphone-identity')
     elif adt.get('ipad_identity'):
