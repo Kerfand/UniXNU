@@ -59,7 +59,7 @@
  	}
  #endif
  	native_owner_cache_authorized = cache_authorized;
-@@ -8046,6 +8059,56 @@
+@@ -8046,6 +8059,58 @@
  }
  #endif
  
@@ -68,6 +68,8 @@
 +// with "initproc exited". Everything here mirrors native_owner_cache_prepare(): the same
 +// struct mount_args, the same APFS mount payload layout, and mount() through the kernel
 +// entry point. Failing is not fatal, so the boot still produces a log.
++extern int native_volatile_data_device(dev_t *, char *, size_t);
++
 +static int
 +native_owner_volatile_mount(proc_t p, user_addr_t scratch)
 +{
@@ -116,7 +118,7 @@
  static int
  load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
-@@ -8188,6 +8251,9 @@
+@@ -8188,6 +8253,9 @@
  	int cache_error = native_owner_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
  	boot_progress_stage("SystemOS mount returned");
  	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
