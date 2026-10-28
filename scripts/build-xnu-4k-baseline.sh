@@ -51,7 +51,7 @@ for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu
 done
 PATCH_LIST=("$ROOT"/patches/xnu/*.patch "$ROOT"/kits/NativePrelink/patches/*.patch)
 if [ "$SKIP_PATCHES" = 1 ]; then PATCH_LIST=(); fi
-for PATCH in "${PATCH_LIST[@]}"; do
+for PATCH in ${PATCH_LIST[@]+"${PATCH_LIST[@]}"}; do
   if ! git -C .cache/xnu-work apply --reverse --check "$PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --check "$PATCH"
     git -C .cache/xnu-work apply "$PATCH"
