@@ -35,13 +35,23 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # The same holds for the boot-time GPU addon mount and the staged system apps copy (zzy), which edit the owner Data mount function
 # inside the systemos patch. Reverse newest first; the loop below re-applies them in name order.
+# The recipe runs twice: the bootstrap pass applies the whole series, the final link runs
+# it again. Re-applying there is unnecessary, and reversing then re-applying trips over
+# patches that later ones rewrote, so skip both loops when the series is in place.
+SKIP_PATCHES=0
+if grep -q native_owner_cache_prepare .cache/xnu-work/bsd/kern/kern_exec.c 2>/dev/null; then
+  SKIP_PATCHES=1
+  echo 'patch series already applied; skipping the patch phase'
+fi
 for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-staged-system-apps.patch" \
     "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
-  if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
+  if [ "$SKIP_PATCHES" = 0 ] && git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --reverse "$LATE_PATCH"
   fi
 done
-for PATCH in "$ROOT"/patches/xnu/*.patch "$ROOT"/kits/NativePrelink/patches/*.patch; do
+PATCH_LIST=("$ROOT"/patches/xnu/*.patch "$ROOT"/kits/NativePrelink/patches/*.patch)
+if [ "$SKIP_PATCHES" = 1 ]; then PATCH_LIST=(); fi
+for PATCH in "${PATCH_LIST[@]}"; do
   if ! git -C .cache/xnu-work apply --reverse --check "$PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --check "$PATCH"
     git -C .cache/xnu-work apply "$PATCH"
