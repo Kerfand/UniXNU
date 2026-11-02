@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Kerfand/unixnu-fuxi0721
-          ref: 2260f85a8f9bfbd39682d8d373b0317f98fd9990 # old, USB restore
+          ref: 7e56ac991f72c38537acba2500b8d0071c1a844b # old, USB restore
           path: device
           submodules: recursive
           persist-credentials: false
