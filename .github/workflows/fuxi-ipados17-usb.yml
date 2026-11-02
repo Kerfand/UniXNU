@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Kerfand/unixnu-fuxi0721
-          ref: 36d9f092e95e36356e30abe413ef65dd08f015fd # old, USB restore and static ABI proof
+          ref: 0e68e5b87296c2f02e09b94e4f09316865ef4de5 # old, USB restore and static ABI proof
           path: device
           submodules: recursive
           persist-credentials: false
